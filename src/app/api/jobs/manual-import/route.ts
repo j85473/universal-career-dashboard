@@ -52,13 +52,15 @@ export async function POST(req: Request) {
 
       // Fallback: If title is still 'Manual Job Import' (e.g. fetch was blocked like LinkedIn 999/403), try extracting from the URL string itself
       if (title === 'Manual Job Import') {
+        const settings = await prisma.userSettings.findFirst();
+        const deepseekApiKey = settings?.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
         const prompt = `Extract the likely Job Title and Company Name from this URL string: "${url}". Return only a raw JSON object with keys "title" and "company". If you cannot determine the company, use "${domain}". Do not use markdown blocks or formatting.`;
         try {
           const dsRes = await fetch('https://api.deepseek.com/chat/completions', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`
+              'Authorization': `Bearer ${deepseekApiKey}`
             },
             body: JSON.stringify({
               model: "deepseek-v4-pro",

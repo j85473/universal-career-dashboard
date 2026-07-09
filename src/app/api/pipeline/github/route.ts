@@ -60,7 +60,6 @@ export async function GET() {
             source: 'GitHub Issues',
             status: 'pending_af', // Bypass JD extraction, go straight to AI Evaluator
             scoringStatus: 'scored', // Required for DeepSeek evaluator to pick it up
-            luckyStatus: 'none',
             postedAt: new Date(issue.created_at)
           }
         });

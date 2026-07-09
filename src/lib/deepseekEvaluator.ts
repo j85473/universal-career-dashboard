@@ -1,11 +1,12 @@
 import { prisma } from './prisma';
 import { getAllResumes } from './resume';
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-
 export async function runDeepseekEvaluation(onProgress?: (msg: string) => void) {
+  const settings = await prisma.userSettings.findFirst();
+  const DEEPSEEK_API_KEY = settings?.deepseekApiKey || process.env.DEEPSEEK_API_KEY;
+
   if (!DEEPSEEK_API_KEY) {
-    throw new Error('DEEPSEEK_API_KEY is not set in the environment variables.');
+    throw new Error('DEEPSEEK_API_KEY is not set in the environment variables or user settings.');
   }
 
   onProgress?.('Fetching jobs for AI evaluation...');
@@ -202,7 +203,6 @@ export async function runDeepseekEvaluation(onProgress?: (msg: string) => void) 
           manualAts
         } : {
           ...(shouldUpdateStatus ? { status: 'dismissed' } : {}),
-          luckyStatus: 'pending', // Send to Wildcard evaluator if standard AI rejects it
           aimFitScore: aimFitScore,
           passReason: aimFitReason,
           reqFitScore: experienceFitScore,

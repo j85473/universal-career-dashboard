@@ -55,7 +55,8 @@ export function cleanHtmlText(html: string): string {
 }
 
 export async function resolveCanonicalUrl(job: { company?: string | null; title?: string | null; url?: string | null }): Promise<string | null> {
-  const serpApiKey = process.env.SERPAPI_KEY;
+  const settings = await prisma.userSettings.findFirst();
+  const serpApiKey = settings?.serpApiKey || process.env.SERPAPI_KEY;
   if (!serpApiKey || !job.company || !job.title) return job.url || null;
 
   const urlLower = (job.url || '').toLowerCase();
@@ -90,7 +91,8 @@ export async function tryFetchFullDescription(job: {
   company?: string | null;
   title?: string | null;
 }): Promise<string | null> {
-  const rapidApiKey = process.env.RAPIDAPI_KEY;
+  const settings = await prisma.userSettings.findFirst();
+  const rapidApiKey = settings?.rapidApiKey || process.env.RAPIDAPI_KEY;
 
   // Attempt API-based fetching first for perfect reliability
   if (job.source === "Indeed" && job.sourceId && rapidApiKey) {
@@ -210,16 +212,54 @@ export async function ingestJobs(
   initialStatus: string = 'inbox',
   skipAts: boolean = false
 ): Promise<number> {
-  const serpApiKey = process.env.SERPAPI_KEY;
-  const rapidApiKey = process.env.RAPIDAPI_KEY;
+  const settings = await prisma.userSettings.findFirst();
+  const serpApiKey = settings?.serpApiKey || process.env.SERPAPI_KEY;
+  const rapidApiKey = settings?.rapidApiKey || process.env.RAPIDAPI_KEY;
+
+  const locationsText = settings?.locationsText?.toLowerCase() || '';
+  const LOCATION_KEYWORDS = locationsText 
+    ? locationsText.split(',').map(l => l.trim()).filter(l => l.length > 0)
+    : ["remote", "work from home", "anywhere"];
+
+  const isMinnesotaTarget = LOCATION_KEYWORDS.some(kw => 
+    kw.includes("mn") || kw.includes("minnesota") || kw.includes("minneapolis") || kw.includes("st. paul") || kw.includes("twin cities")
+  );
+
+  const isRemoteTarget = LOCATION_KEYWORDS.some(kw => 
+    kw.includes("remote") || kw.includes("wfh") || kw.includes("work from home") || kw.includes("anywhere")
+  );
+  
+  if (isRemoteTarget) {
+    LOCATION_KEYWORDS.push("usa", "us", "u.s.", "united states", "worldwide");
+  }
+
+  const isLocationMatch = (job: any): boolean => {
+    let locationString = "";
+    if (typeof job.location === "string")
+      locationString = job.location.toLowerCase();
+    else if (job.location?.name)
+      locationString = job.location.name.toLowerCase();
+    else if (job.location?.city || job.location?.region)
+      locationString = `${job.location.city || ''} ${job.location.region || ''}`.toLowerCase();
+    else if (job.categories?.location)
+      locationString = job.categories.location.toLowerCase();
+    else if (job.locationsText)
+      locationString = job.locationsText.toLowerCase();
+      
+    if (!locationString) return false;
+      
+    return LOCATION_KEYWORDS.some((kw) => {
+      if (kw.length <= 3) {
+        const regex = new RegExp(`\\b${kw}\\b`, 'i');
+        return regex.test(locationString);
+      }
+      return locationString.includes(kw);
+    });
+  };
+
   const serpApiKeys = [serpApiKey, process.env.SERPAPI_KEY_2].filter(Boolean) as string[];
   const rapidApiKeys = [rapidApiKey, process.env.RAPIDAPI_KEY_2].filter(Boolean) as string[];
 
-  if (serpApiKeys.length === 0 && rapidApiKeys.length === 0) {
-    if (onProgress) onProgress("No API keys found, skipping ingestion.");
-    console.log("No API keys found, skipping ingestion.");
-    return 0;
-  }
 
   async function fetchWithKeyRotation(
     keys: string[],
@@ -410,7 +450,6 @@ export async function ingestJobs(
           fingerprint,
           postedAt,
           status: initialStatus,
-          luckyStatus: "pending", // Queue for wildcard evaluation
           scoringStatus: needsJd ? "needs_jd" : "scored",
           observations: {
             create: {
@@ -428,14 +467,14 @@ export async function ingestJobs(
   }
 
   // BROAD SEARCH
-  const baseQuery = searchQuery || "sales";
-  const zipCode = "00000";
+  const baseQuery = searchQuery || settings?.goalsText || "sales";
+  const zipCode = settings?.locationsText || "00000";
 
   // 0. BioSpace RSS Scraper
   if (!targetAtsSlugs || targetAtsSlugs.length === 0) {
     if (onProgress) onProgress("Searching BioSpace RSS...");
     try {
-      const bsRes = await fetch("https://jobs.biospace.com/jobsrss/?keywords=sales");
+      const bsRes = await fetch(`https://jobs.biospace.com/jobsrss/?keywords=${encodeURIComponent(baseQuery)}`);
       if (bsRes.ok) {
         const xml = await bsRes.text();
         const cheerio = await import("cheerio");
@@ -449,6 +488,8 @@ export async function ingestJobs(
           const descHtml = $item.find("description").text();
           const pubDate = $item.find("pubDate").text();
           const creator = $item.find("dc\\:creator").text() || $item.find("author").text();
+          const location = $item.find("location").text() || "Unknown";
+          if (!isLocationMatch({ location })) continue;
           
           let company = "BioSpace";
           let title = fullTitle;
@@ -463,15 +504,6 @@ export async function ingestJobs(
             const parts = fullTitle.split(": ");
             company = parts[0].trim();
             title = parts.slice(1).join(": ").trim();
-          }
-
-          let location = "Remote / US";
-          const descLines = descHtml.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-          if (descLines.length > 0) {
-            const lastLine = descLines[descLines.length - 1];
-            if (!lastLine.includes(":") && lastLine.length < 50) {
-               location = lastLine;
-            }
           }
 
           try {
@@ -497,13 +529,13 @@ export async function ingestJobs(
     // 0.1 The Muse API
     if (onProgress) onProgress("Searching The Muse API...");
     try {
-      const museRes = await fetch("https://www.themuse.com/api/public/jobs?page=1&category=Sales");
+      const museRes = await fetch(`https://www.themuse.com/api/public/jobs?page=1`);
       if (museRes.ok) {
         const data = await museRes.json();
         const jobs = data.results || [];
         for (const job of jobs) {
           const location = job.locations && job.locations.length > 0 ? job.locations[0].name : "Flexible / Remote";
-          if (!/\b(us|usa|u\.s\.|united states|remote|flexible)\b|,\s*[A-Z]{2}\b/i.test(location)) continue;
+          if (!isLocationMatch({ location })) continue;
 
           try {
             await processJob({
@@ -533,15 +565,11 @@ export async function ingestJobs(
         const data = await himalayasRes.json();
         const jobs = data.jobs || [];
         for (const job of jobs) {
-          if (!job.title.toLowerCase().includes("sales") && !job.title.toLowerCase().includes("account executive")) continue;
           
           const sid = job.id ?? job.applicationLink;
           if (sid == null) continue;
-          let location = "Remote";
-          if (job.locationRestrictions && job.locationRestrictions.length > 0) {
-            location = job.locationRestrictions.join(", ");
-          }
-          if (!/\b(us|usa|u\.s\.|united states|worldwide|anywhere|remote)\b/i.test(location)) continue;
+          const location = job.locationRestrictions?.join(", ") || "Unknown";
+          if (!isLocationMatch({ location })) continue;
 
           try {
             await processJob({
@@ -566,13 +594,13 @@ export async function ingestJobs(
     // 0.3 Remotive API
     if (onProgress) onProgress("Searching Remotive API...");
     try {
-      const remotiveRes = await fetch("https://remotive.com/api/remote-jobs?search=sales&limit=50");
+      const remotiveRes = await fetch(`https://remotive.com/api/remote-jobs?search=${encodeURIComponent(baseQuery)}&limit=50`);
       if (remotiveRes.ok) {
         const data = await remotiveRes.json();
         const jobs = data.jobs || [];
         for (const job of jobs) {
           const location = job.candidate_required_location || "Remote";
-          if (!/\b(us|usa|u\.s\.|united states|worldwide|anywhere|remote)\b/i.test(location)) continue;
+          if (!isLocationMatch({ location })) continue;
 
           try {
             await processJob({
@@ -602,7 +630,6 @@ export async function ingestJobs(
         const data = await arbeitRes.json();
         const jobs = data.data || [];
         for (const job of jobs) {
-          if (!job.title.toLowerCase().includes("sales") && !job.title.toLowerCase().includes("account executive")) continue;
           
           const location = job.location || "Remote";
           if (!/\b(us|usa|u\.s\.|united states)\b/i.test(location)) continue;
@@ -629,7 +656,7 @@ export async function ingestJobs(
   }
 
   // 1. CareerForce MN Scraper
-  if (!targetAtsSlugs || targetAtsSlugs.length === 0) {
+  if (isMinnesotaTarget && (!targetAtsSlugs || targetAtsSlugs.length === 0)) {
     if (onProgress) onProgress("Starting CareerForce MN Stealth Scraper...");
     try {
       const { spawn } = await import('child_process');
@@ -1024,30 +1051,6 @@ export async function ingestJobs(
   
   if (onProgress) onProgress("Searching Direct ATS Boards...");
     try {
-      const LOCATION_KEYWORDS = [
-        "minneapolis",
-        "st. paul",
-        "saint paul",
-        "minnesota",
-        "mn",
-        "554",
-        "551",
-      ];
-      const isLocationMatch = (job: any): boolean => {
-        let locationString = "";
-        if (typeof job.location === "string")
-          locationString = job.location.toLowerCase();
-        else if (job.location?.name)
-          locationString = job.location.name.toLowerCase();
-        else if (job.location?.city || job.location?.region)
-          locationString = `${job.location.city || ''} ${job.location.region || ''}`.toLowerCase();
-        else if (job.categories?.location)
-          locationString = job.categories.location.toLowerCase();
-        else if (job.locationsText)
-          locationString = job.locationsText.toLowerCase();
-        return LOCATION_KEYWORDS.some((kw) => locationString.includes(kw));
-      };
-
       let activeBoards = [];
       if (targetAtsSlugs && targetAtsSlugs.length > 0) {
         activeBoards = await prisma.atsCompany.findMany({
@@ -1064,7 +1067,14 @@ export async function ingestJobs(
         });
       }
 
+      let checkedBoards = 0;
       for (const board of activeBoards) {
+        checkedBoards++;
+        if (checkedBoards % 50 === 0) {
+          if (onProgress) onProgress(`Searching Direct ATS Boards... (${checkedBoards} / ${activeBoards.length})`);
+          console.log(`[ATS Ingestion] Checked ${checkedBoards} / ${activeBoards.length} boards...`);
+        }
+
         if (signal?.aborted) break;
         let apiUrl = "";
         let fetchOptions: RequestInit = { signal: AbortSignal.timeout(10000) };

@@ -15,8 +15,9 @@ async function resolveFullDescription(job: any): Promise<{ text: string, needsRe
     return { text: description, needsReview: false };
   }
 
-  const rapidApiKey = process.env.RAPIDAPI_KEY;
-  const serpApiKey = process.env.SERPAPI_KEY;
+  const settings = await prisma.userSettings.findFirst();
+  const rapidApiKey = settings?.rapidApiKey || process.env.RAPIDAPI_KEY;
+  const serpApiKey = settings?.serpApiKey || process.env.SERPAPI_KEY;
 
   // Fallback 1: JSearch (RapidAPI)
   if (rapidApiKey) {

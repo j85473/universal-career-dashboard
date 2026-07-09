@@ -6,16 +6,15 @@ import { identifyAts, ATS_OPTIONS } from '@/lib/atsUtils';
 interface ExpandOverlayProps {
   job: any;
   onClose: () => void;
-  onStatusChange: (id: string, status: string, reason?: string, luckyStatus?: string) => void;
+  onStatusChange: (id: string, status: string, reason?: string) => void;
   onToggleTailoring?: (id: string, isStaged: boolean) => void;
   onJobUpdate?: (id: string, updates: any) => void;
   primaryScore?: 'resume' | 'experience';
-  isLucky?: boolean;
 }
 
 
 
-export function ExpandOverlay({ job: initialJob, onClose, onStatusChange, onToggleTailoring, onJobUpdate, primaryScore = 'resume', isLucky }: ExpandOverlayProps) {
+export function ExpandOverlay({ job: initialJob, onClose, onStatusChange, onToggleTailoring, onJobUpdate, primaryScore = 'resume' }: ExpandOverlayProps) {
   const [job, setJob] = useState(initialJob);
   const [passReason, setPassReason] = useState('');
   const [showPassInput, setShowPassInput] = useState(false);
@@ -38,13 +37,13 @@ export function ExpandOverlay({ job: initialJob, onClose, onStatusChange, onTogg
 
   if (!job) return null;
 
-  const score = isLucky ? (job.luckyAimFitScore ?? 0) : (job.aimFitScore ?? job.fitScore ?? 0);
+  const score = job.aimFitScore ?? job.fitScore ?? 0;
   let scoreColor = 'fill-red';
   let bucket = 'c';
-  if (job.status === 'passed' || job.status === 'dismissed' || job.status === 'lucky_dismissed') {
+  if (job.status === 'passed' || job.status === 'dismissed') {
     scoreColor = 'fill-red';
     bucket = 'c';
-  } else if (score >= 80 || job.fitCategory === 'promoted' || job.luckyStatus === 'inbox') {
+  } else if (score >= 80 || job.fitCategory === 'promoted') {
     scoreColor = 'fill-green';
     bucket = 'a';
   } else if (score >= 65) {
@@ -53,10 +52,6 @@ export function ExpandOverlay({ job: initialJob, onClose, onStatusChange, onTogg
   }
 
   let luckyExpScore = job.reqFitScore || 0;
-  if (isLucky && job.luckyPassReason) {
-    const match = job.luckyPassReason.match(/Experience Fit \((\d+)\/100\)/);
-    if (match) luckyExpScore = parseInt(match[1], 10);
-  }
 
   const handleUpdateJD = async () => {
     try {
@@ -137,10 +132,10 @@ export function ExpandOverlay({ job: initialJob, onClose, onStatusChange, onTogg
       setShowPassInput(true);
     } else {
       if (passReason.trim()) {
-        if (isLucky && job.status === 'dismissed') {
-           onStatusChange(job.id, '', passReason, 'dismissed');
+        if (job.status === 'dismissed') {
+           onStatusChange(job.id, '', passReason);
         } else {
-           onStatusChange(job.id, 'passed', passReason, isLucky ? 'dismissed' : undefined);
+           onStatusChange(job.id, 'passed', passReason);
         }
         onClose();
       }
@@ -226,12 +221,12 @@ export function ExpandOverlay({ job: initialJob, onClose, onStatusChange, onTogg
     </div>
   ) : null;
 
-  const passReasonToDisplay = isLucky ? job.luckyPassReason : (job.passReason || job.fitRationale || '');
+  const passReasonToDisplay = job.passReason || job.fitRationale || '';
 
   const resumeRationaleSection = passReasonToDisplay ? (
     <div key="resumeRationale" style={{ marginTop: '20px' }}>
       <div className="expand-section-title">
-        {(job.status === 'dismissed' || job.status === 'lucky_dismissed') ? 'Dismissal Reason' : 'Resume Rationale'}
+        {job.status === 'dismissed' ? 'Dismissal Reason' : 'Resume Rationale'}
       </div>
       <div className="expand-desc">{passReasonToDisplay}</div>
     </div>
@@ -455,23 +450,7 @@ export function ExpandOverlay({ job: initialJob, onClose, onStatusChange, onTogg
                 {showPromoteInput ? 'Confirm Promote' : 'Promote to Inbox'}
               </button>
               
-              {isLucky && job.luckyStatus === 'inbox' && (
-                <>
-                  {showPassInput && (
-                    <input 
-                      type="text" 
-                      className="feedback-input expand-footer-input" 
-                      placeholder="Why are you passing?" 
-                      value={passReason}
-                      onChange={(e) => setPassReason(e.target.value)}
-                    />
-                  )}
-                  <button className="expand-btn" onClick={handlePass} style={{ color: 'var(--red)' }}>
-                    <XCircle size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
-                    {showPassInput ? 'Confirm Pass' : 'Pass'}
-                  </button>
-                </>
-              )}
+
               {onToggleTailoring && (
                 job.tailoringStaged ? (
                   <button className="expand-btn primary" onClick={() => { onToggleTailoring(job.id, false); onClose(); }}>

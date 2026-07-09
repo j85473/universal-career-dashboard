@@ -29,7 +29,7 @@ export async function POST(request: Request) {
         // Fallback to searching by company name if it's staged for tailoring
         const jobs = await prisma.job.findMany({
           where: { 
-            company: { contains: jobName, mode: 'insensitive' },
+            company: { contains: jobName },
             tailoringStaged: true
           }
         });
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
         } else {
           // Find any if not staged
           const anyJobs = await prisma.job.findMany({
-            where: { company: { contains: jobName, mode: 'insensitive' } },
+            where: { company: { contains: jobName } },
             orderBy: { createdAt: 'desc' }
           });
           if (anyJobs.length > 0) {

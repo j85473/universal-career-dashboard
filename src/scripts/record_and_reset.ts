@@ -10,7 +10,6 @@ async function run() {
       where: {
         OR: [
           { status: 'inbox' },
-          { luckyStatus: 'inbox' }
         ]
       },
       select: {
@@ -19,10 +18,7 @@ async function run() {
         company: true,
         status: true,
         aimFitScore: true,
-        reqFitScore: true,
-        luckyStatus: true,
-        luckyAimFitScore: true,
-        luckyFitScore: true
+        reqFitScore: true
       }
     });
 
@@ -45,18 +41,7 @@ async function run() {
     });
     console.log(`Reset ${normalResult.count} normal inbox jobs.`);
 
-    // Update lucky inbox jobs
-    const luckyResult = await prisma.job.updateMany({
-      where: { luckyStatus: 'inbox' },
-      data: {
-        luckyAimFitScore: null,
-        luckyFitScore: null,
-        luckyFitCategory: 'unscored',
-        luckyStatus: 'pending', // Queues it for Wildcard evaluator
-        luckyScoreAttempts: 0
-      }
-    });
-    console.log(`Reset ${luckyResult.count} lucky inbox jobs.`);
+
 
   } catch (error) {
     console.error('Error recording and resetting:', error);

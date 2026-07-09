@@ -3,8 +3,20 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model UserSettings {
+  id             String   @id @default("global")
+  deepseekApiKey String?
+  apifyApiKey    String?
+  rapidApiKey    String?
+  serpApiKey     String?
+  resumeText     String?
+  goalsText      String?
+  locationsText  String?
+  updatedAt      DateTime @updatedAt
 }
 
 model Job {
@@ -14,32 +26,29 @@ model Job {
   description String?
   location    String?
   url         String?
-  source      String? // e.g., "CareerOneStop", "SerpApi"
-  sourceId    String? // Removed @unique for robust dedupe
-  manualAts   String? // Manual override for ATS platform
+  source      String?
+  sourceId    String?
+  manualAts   String?
 
-  // Deduplication Fingerprints
   canonicalUrl String?
   fingerprint  String?
 
   postedAt           DateTime
-  status             String   @default("pending_af") // pending_af, inbox, applied, passed, bookmarked, archived, expired, dismissed
-  verificationStatus String   @default("pending") // pending, verifying, verified, expired, failed
+  status             String   @default("pending_af")
+  verificationStatus String   @default("pending")
 
-  // Batch Tracking
-  contextBatched Boolean @default(false)
+  contextBatched Boolean   @default(false)
   afBatchId      String?
   jdBatchId      String?
   cooldownUntil  DateTime?
 
-  // AI Scoring Queue tracking
-  scoringStatus String  @default("queued") // queued, scoring, scored, failed, skipped
+  scoringStatus String  @default("queued")
   scoreAttempts Int     @default(0)
   scoreError    String?
 
   fitScore          Int?
   aimFitScore       Int?
-  fitCategory       String  @default("unscored") // no-tailoring, minor, moderate, major, unscored, rejected
+  fitCategory       String  @default("unscored")
   fitRationale      String?
   tailoringAdvice   String?
   recommendedResume String?
@@ -48,20 +57,11 @@ model Job {
   contextPacket     String?
   passReason        String?
 
-  // Wildcard (I'm Feeling Lucky) Independent Scoring
-  luckyStatus        String  @default("none") // none, pending, inbox, dismissed
-  luckyFitScore      Int?
-  luckyAimFitScore   Int?
-  luckyFitCategory   String  @default("unscored")
-  luckyPassReason    String?
-  luckyScoreAttempts Int     @default(0)
-  luckyScoreError    String?
-
-  reqFitScore       Int?
-  reqFitRationale   String?
-  travelScore       Int?
-  experienceStatus  String  @default("queued") // queued, processing, scored
-  batchJobId        String?
+  reqFitScore      Int?
+  reqFitRationale  String?
+  travelScore      Int?
+  experienceStatus String  @default("queued")
+  batchJobId       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -72,8 +72,8 @@ model Job {
 model JobSourceObservation {
   id       String  @id @default(uuid())
   jobId    String
-  source   String // e.g., "SerpApi"
-  sourceId String // e.g., "job_123"
+  source   String
+  sourceId String
   url      String?
   job      Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
@@ -83,38 +83,23 @@ model JobSourceObservation {
 model UserPreference {
   id        String   @id @default(uuid())
   text      String
-  type      String // hard_reject, soft_negative, boost, note, temporary
+  type      String
   createdAt DateTime @default(now())
 }
 
 model UsageTracking {
   id           String @id @default(uuid())
   date         String @unique
-  tokens       Int    @default(0) // Legacy total
+  tokens       Int    @default(0)
   inputTokens  Int    @default(0)
   outputTokens Int    @default(0)
   cost         Float  @default(0)
 }
 
-model UsedArticle {
-  id        String   @id @default(uuid())
-  url       String   @unique
-  status    String
-  createdAt DateTime @default(now())
-}
-
-model LinkedInDraft {
-  id        String   @id @default(uuid())
-  title     String
-  postText  String
-  url       String
-  createdAt DateTime @default(now())
-}
-
 model AtsCompany {
   slug          String
   platform      String
-  status        String    @default("active") // active, parked, blacklisted
+  status        String    @default("active")
   failCount     Int       @default(0)
   nextCheckDate DateTime  @default(now())
   lastCheckedAt DateTime?
@@ -125,40 +110,8 @@ model AtsCompany {
 }
 
 model ContextProfile {
-  id              String   @id @default("global")
-  rulesText       String
-  updatedAt       DateTime @updatedAt
-  batchJobId      String?
-  linkedinBatchId String?
+  id         String   @id @default("global")
+  rulesText  String
+  updatedAt  DateTime @updatedAt
+  batchJobId String?
 }
-
-model WildcardProfile {
-  id              String   @id @default("global")
-  profileText     String
-  updatedAt       DateTime @updatedAt
-}
-
-model UsedWildcardQuery {
-  id        String   @id @default(uuid())
-  query     String   @unique
-  createdAt DateTime @default(now())
-}
-
-model OutreachTarget {
-  id               String   @id @default(uuid())
-  publicIdentifier String?  // Optional apify identifier
-  firstName        String
-  lastName         String
-  headline         String?
-  company          String?
-  email            String?
-  linkedinUrl      String   @unique
-  about            String?
-  locationText     String?
-  status           String   @default("inbox") // inbox, messaged, replied, passed
-  generatedPitch   String?
-  generatedNote    String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-}
-

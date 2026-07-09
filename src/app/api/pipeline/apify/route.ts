@@ -4,7 +4,8 @@ import { generateFingerprint } from '@/lib/jobIngestion';
 
 export async function GET() {
   try {
-    const apiToken = process.env.APIFY_API_TOKEN;
+    const settings = await prisma.userSettings.findFirst();
+    const apiToken = settings?.apifyApiKey || process.env.APIFY_API_TOKEN;
     
     if (!apiToken) {
       return NextResponse.json({ error: 'APIFY_API_TOKEN is not set in environment variables.' }, { status: 500 });
@@ -61,7 +62,6 @@ export async function GET() {
             source: 'LinkedIn (Apify)',
             status: 'pending_af', // Bypass JD extraction, go straight to AI Evaluator
             scoringStatus: 'scored',
-            luckyStatus: 'none', 
             fingerprint,
             postedAt: item.publishedAt ? new Date(item.publishedAt) : new Date(),
           }

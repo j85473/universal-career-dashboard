@@ -49,7 +49,6 @@ export async function GET() {
               source: `Reddit (r/${sub})`,
               status: 'pending_af', // Bypass JD extraction, go straight to AI Evaluator
               scoringStatus: 'scored',
-              luckyStatus: 'none',
               postedAt: new Date(item.created_utc * 1000)
             }
           });

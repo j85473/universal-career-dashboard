@@ -18,7 +18,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 
   // Attempt to resolve the canonical URL using SerpApi Google Search
-  const serpApiKey = process.env.SERPAPI_KEY;
+  const settings = await prisma.userSettings.findFirst();
+  const serpApiKey = settings?.serpApiKey || process.env.SERPAPI_KEY;
   let resolvedUrl = job.url || '';
 
   if (serpApiKey) {

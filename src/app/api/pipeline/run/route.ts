@@ -25,7 +25,7 @@ function updateState(state: any) {
 }
 
 import { GET as apifySync } from '../apify/route';
-import { GET as apifyProfilesSync } from '../apify-profiles/route';
+
 import { GET as redditSync } from '../reddit/route';
 import { GET as hnSync } from '../hackernews/route';
 import { GET as githubSync } from '../github/route';
@@ -40,11 +40,7 @@ async function orchestratePipeline() {
       await apifySync();
     } catch (e) { console.error('Apify sync failed:', e); }
 
-    updateState({ stepProgress: 'Running Apify LinkedIn Profiles Sync...' });
-    try {
-      await apifyProfilesSync();
-    } catch (e) { console.error('Apify profiles sync failed:', e); }
-      
+
     updateState({ stepProgress: 'Running Reddit Job Sync...' });
     try {
       await redditSync();
@@ -62,7 +58,7 @@ async function orchestratePipeline() {
 
     updateState({ stepProgress: 'Checking for expired Cooldown jobs...' });
     try {
-      await processCooldownJobs(updateState);
+      await processCooldownJobs((msg) => updateState({ stepProgress: msg }));
     } catch (e) { console.error('Cooldown processing failed:', e); }
       
     updateState({ stepProgress: 'Native syncs complete. Running ats-search logic...' });
@@ -72,16 +68,7 @@ async function orchestratePipeline() {
       updateState({ stepProgress: msg });
     }, ac.signal, []);
     
-    // 1b. Wildcard Ingestion
-    updateState({ currentStep: 'Wildcard Ingestion', stepProgress: 'Running broad wildcard searches...' });
-    const wildcardQueries = ['strategy', 'growth', 'operations', 'founding', 'special projects'];
-    for (const query of wildcardQueries) {
-      if (ac.signal.aborted) break;
-      updateState({ stepProgress: `Wildcard: Searching "${query}"...` });
-      await ingestJobs((msg) => {
-        updateState({ stepProgress: `Wildcard (${query}): ${msg}` });
-      }, ac.signal, undefined, query, 'pending_af', true);
-    }
+
     
     // 2. Loop JD Extraction
     updateState({ currentStep: 'JD Extraction', stepProgress: 'Submitting and polling for JD Extraction...' });
@@ -148,39 +135,10 @@ async function orchestratePipeline() {
        await new Promise(r => setTimeout(r, 2000));
     }
 
-    // 4. Wildcard Evaluation
-    updateState({ currentStep: 'Wildcard Evaluation', stepProgress: 'Running Wildcard scoring...' });
-    let wildcardComplete = false;
-    while (!wildcardComplete) {
-       const pendingWildcardCount = await prisma.job.count({
-          where: { luckyStatus: 'pending' }
-       });
 
-       if (pendingWildcardCount === 0) {
-         break;
-       }
-       
-       updateState({ stepProgress: `Wildcard Evaluation: ${pendingWildcardCount} jobs queued...` });
-       try {
-         const { runLuckyEvaluation } = await import('@/lib/luckyEvaluator');
-         const res = await runLuckyEvaluation((msg) => {
-           updateState({ stepProgress: `Wildcard Evaluation: ${msg}` });
-         });
-         // If no jobs were processed or an error occurred that didn't throw, prevent infinite loop
-         if (res.scoresProcessed === 0) {
-            break;
-         }
-       } catch (err: any) {
-         console.error('Wildcard Evaluation Error:', err);
-         updateState({ stepProgress: `Wildcard Evaluation Error: ${err.message}` });
-         break; // Stop loop on error
-       }
-       
-       await new Promise(r => setTimeout(r, 2000));
-    }
 
     try {
-      await enforceRetroactiveCooldowns(updateState);
+      await enforceRetroactiveCooldowns((msg) => updateState({ stepProgress: msg }));
     } catch (e) {
       console.error('Cooldown enforcement failed:', e);
     }
